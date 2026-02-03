@@ -1,2 +1,6 @@
 # Tsinghua_code
-这是我在清华工作期间的代码存储地址
+
+## embodied_ai/no_body_dataset/convert
+
+- batch_stage1_vis_13.sh: batch script for stage1 visualization.
+- convert_rosbag_to_mp4_vis_13_test.py: convert rosbag to MP4 and aligned JSON.
