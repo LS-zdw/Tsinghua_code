@@ -3,13 +3,15 @@ set -euo pipefail
 
 # ====== [配置区域] 请修改这里 ======
 # 1. 原始 rosbag 文件夹路径
-BAG_DIR="/home/ubuntu/qiuyi/fastumi_data/rosbag/pick-place-cubes-0"
+#BAG_DIR="/home/ubuntu/fastumi/DATA_convert/test_data"
+BAG_DIR="/home/ubuntu/fastumi/data"
 
 # 2. 输出文件夹路径
-OUT_DIR="/home/ubuntu/qiuyi/fastumi_data/batch_data_0125_vis"
+#OUT_DIR="/home/ubuntu/fastumi/DATA_convert/test_con_data"
+OUT_DIR="/home/ubuntu/fastumi/data_out"
 
-# 3. Python 脚本路径 (多路导出 + 可视化版本)
-PY_SCRIPT="./convert_rosbag_to_mp4_vis_13_test.py"
+# 3. Python 脚本路径 (即刚才那个带绘图功能的 v3 脚本)
+PY_SCRIPT="/home/ubuntu/fastumi/DATA_convert/convert_rosbag_to_mp4_vis_13_test.py"
 
 # 5. 候选 Serial (FastUMI 的序列号，优先尝试第一个)
 SERIALS=(
