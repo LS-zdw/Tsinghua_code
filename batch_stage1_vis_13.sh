@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ====== [配置区域] 请修改这里 ======
+# 1. 原始 rosbag 文件夹路径
+#BAG_DIR="/home/ubuntu/fastumi/DATA_convert/test_data"
+BAG_DIR="/home/ubuntu/fastumi/data"
+# 2. 输出文件夹路径
+#OUT_DIR="/home/ubuntu/fastumi/DATA_convert/test_con_data"
+OUT_DIR="/home/ubuntu/fastumi/data_out"
+
+# 3. Python 脚本路径 (即刚才那个带绘图功能的 v3 脚本)
+PY_SCRIPT="/home/ubuntu/fastumi/DATA_convert/convert_rosbag_to_mp4_vis_13_test.py"
+
+# 4. Head 相机的 Topic (根据你的实际情况修改，例如 compressed)
+HEAD_TOPIC="/camera/color/image_raw/compressed"
+
+# 5. 候选 Serial (FastUMI 的序列号，优先尝试第一个)
+SERIALS=(
+  "250801DR48FP25002355"
+  "250801DR48FP25002606"
+)
+
+
+
+# 6. 并行任务数 (建议设置为 CPU 核心数的一半，以免 IO 爆炸)
+JOBS="${JOBS:-1}"
+
+# ====== [新增] 获取起始索引 ======
+# 获取第一个参数作为起始 Index，如果未提供则默认为 0
+START_IDX="${1:-0}"
+# ================================
+
+mkdir -p "$OUT_DIR"
+
+# 查找所有 bag 文件并排序
+mapfile -t BAGS < <(find "$BAG_DIR" -maxdepth 1 -type f -name "*.bag" | sort)
+if [[ ${#BAGS[@]} -eq 0 ]]; then
+  echo "[ERROR] No .bag files found in: $BAG_DIR" >&2
+  exit 1
+fi
+
+echo "[INFO] Found ${#BAGS[@]} bag files. Starting batch processing from index: $START_IDX"
+
+run_one () {
+  local bag="$1"
+  local idx="$2" # 传入的是 4 位字符串，如 0001
+  local base name out_dir jsn log
+
+  base="$(basename "$bag")"
+  name="$(basename "$bag" .bag)"
+  out_dir="$OUT_DIR/$name"
+  mkdir -p "$out_dir"
+  jsn="$out_dir/idx${idx}.json"
+  log="$out_dir/stage1_${idx}.log"
+
+  # [检查] 跳过已生成的
+  if [[ -f "$jsn" ]]; then
+    return 0
+  fi
+
+  echo "[RUN ] idx=$idx $base"
+
+  # 执行 Python 脚本（一次性传入所有 serial）
+  if python3 "$PY_SCRIPT" \
+      --bag "$bag" \
+      --out_dir "$out_dir" \
+      --data_idx "$idx" \
+      --xv_serials "${SERIALS[@]}" \
+      > "$log" 2>&1; then
+    if [[ -f "$jsn" ]]; then
+      echo "[OK  ] idx=$idx $base"
+    else
+      echo "[WARN] idx=$idx no json produced (see log: $log)"
+      return 1
+    fi
+  else
+    echo "[FAIL] idx=$idx $base (see log: $log)"
+    return 1
+  fi
+}
+
+export -f run_one
+export OUT_DIR PY_SCRIPT
+# 导出数组供子进程使用
+export SERIALS_STR="$(printf "%q " "${SERIALS[@]}")"
+
+run_one_wrapper () {
+  # 重建数组
+  eval "SERIALS=($SERIALS_STR)"
+  run_one "$@"
+}
+export -f run_one_wrapper
+
+# ---------------------------------------------------------
+# 执行调度逻辑
+# ---------------------------------------------------------
+
+if [[ "$JOBS" -le 1 ]]; then
+  # 串行执行
+  i=$START_IDX   # [修改] 使用传入的起始索引
+  for b in "${BAGS[@]}"; do
+    # 格式化为 4 位数字 (匹配 Python 脚本 f"{int(data_idx):04d}")
+    printf -v idx "%04d" "$i"
+    run_one_wrapper "$b" "$idx"
+    i=$((i+1))
+  done
+else
+  # 并行执行
+  tmp_list="$(mktemp)"
+  i=$START_IDX   # [修改] 使用传入的起始索引
+  for b in "${BAGS[@]}"; do
+    printf -v idx "%04d" "$i"
+    # 将 bag路径 和 idx 写入临时文件
+    printf "%s\t%s\n" "$b" "$idx" >> "$tmp_list"
+    i=$((i+1))
+  done
+
+  # xargs 并行调用
+  cat "$tmp_list" | xargs -P "$JOBS" -n 1 bash -c '
+    line="$0"
+    bag="$(echo "$line" | cut -f1)"
+    idx="$(echo "$line" | cut -f2)"
+    run_one_wrapper "$bag" "$idx"
+  '
+
+  rm -f "$tmp_list"
+fi
+
+echo "[INFO] All done. Output dir: $OUT_DIR"
